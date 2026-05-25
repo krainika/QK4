@@ -47,15 +47,13 @@ endif()
 # Platform-specific dependency handling
 if(APPLE)
     # macOS with Homebrew
-    set(OPUS_PREFIX "/opt/homebrew/opt/opus")
+    execute_process(COMMAND brew --prefix opus OUTPUT_VARIABLE OPUS_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND brew --prefix hidapi OUTPUT_VARIABLE HIDAPI_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND brew --prefix libusb OUTPUT_VARIABLE LIBUSB_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
     set(OPUS_INCLUDE_DIRS "${OPUS_PREFIX}/include")
     set(OPUS_LIBRARIES "${OPUS_PREFIX}/lib/libopus.dylib")
-
-    set(HIDAPI_PREFIX "/opt/homebrew/opt/hidapi")
     set(HIDAPI_INCLUDE_DIRS "${HIDAPI_PREFIX}/include")
     set(HIDAPI_LIBRARIES "${HIDAPI_PREFIX}/lib/libhidapi.dylib")
-
-    set(LIBUSB_PREFIX "/opt/homebrew/opt/libusb")
     set(LIBUSB_INCLUDE_DIRS "${LIBUSB_PREFIX}/include")
     set(LIBUSB_LIBRARIES "${LIBUSB_PREFIX}/lib/libusb-1.0.dylib")
 elseif(WIN32)
