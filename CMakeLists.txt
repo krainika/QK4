@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 project(QK4 VERSION 0.2.0 LANGUAGES CXX)
 
 # Full version string can include prerelease info (e.g., "0.1.0-alpha.123")
@@ -173,6 +173,7 @@ set(SOURCES
     src/ui/popups/modepopupwidget.cpp
     src/ui/widgets/txmeterwidget.cpp
     src/ui/widgets/nethealthwidget.cpp
+    src/ui/widgets/nethealthpopup.cpp
     src/ui/widgets/icontextlabel.cpp
     src/ui/widgets/powerstatusbutton.cpp
     src/ui/popups/fnpopupwidget.cpp
@@ -307,6 +308,7 @@ set(HEADERS
     src/ui/popups/modepopupwidget.h
     src/ui/widgets/txmeterwidget.h
     src/ui/widgets/nethealthwidget.h
+    src/ui/widgets/nethealthpopup.h
     src/ui/popups/fnpopupwidget.h
     src/ui/popups/rxeqpopupwidget.h
     src/ui/popups/antennacfgpopup.h
