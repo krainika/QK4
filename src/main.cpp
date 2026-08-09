@@ -3,6 +3,8 @@
 #include <QSysInfo>
 #include <QGuiApplication>
 #include <QFontDatabase>
+#include <QSettings>
+#include <QSslSocket>
 #include <rhi/qrhi.h>
 #ifdef Q_OS_MACOS
 #include <QtGui/private/qguiapplication_p.h>
@@ -50,6 +52,23 @@ void setupFonts() {
     defaultFont.setHintingPreference(QFont::PreferFullHinting);
     defaultFont.setStyleStrategy(QFont::PreferAntialias);
     QApplication::setFont(defaultFont);
+}
+
+// WHY: Windows ships both the Schannel and OpenSSL TLS backends, and Qt may activate
+// Schannel — which has no TLS-PSK support at all, so the K4's port-9204 PSK handshake can
+// never complete under it. Must run before the first QSslSocket is constructed (TcpClient
+// creates one in its constructor). No-op on macOS and Linux, where OpenSSL is already active.
+void selectTlsBackend() {
+    if (QSslSocket::activeBackend() == QLatin1String("openssl"))
+        return;
+
+    if (QSslSocket::availableBackends().contains(QLatin1String("openssl"))) {
+        if (!QSslSocket::setActiveBackend(QStringLiteral("openssl")))
+            qWarning() << "Failed to activate the OpenSSL TLS backend - TLS/PSK unavailable";
+    } else {
+        qWarning() << "OpenSSL TLS backend unavailable (active:" << QSslSocket::activeBackend()
+                   << ") - TLS/PSK connections will fail";
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -100,11 +119,29 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("QK4");
     app.setApplicationVersion(QK4_VERSION);
+
+    // WHY: call sign changed AI5QK->KF5O. Migrate existing QSettings forward once so saved
+    // window geometry, station profiles, and radio config survive the identity rename.
+    // Default-constructing QSettings under each identity reproduces Qt's per-platform path
+    // logic (macOS keys on the domain, Windows/Linux on the org name). The empty-check keeps
+    // it idempotent — no re-copy after the first launch.
     app.setOrganizationName("AI5QK");
     app.setOrganizationDomain("ai5qk.com");
+    QSettings oldSettings;
+    app.setOrganizationName("KF5O");
+    app.setOrganizationDomain("kf5o.com");
+    QSettings newSettings;
+    if (newSettings.allKeys().isEmpty() && !oldSettings.allKeys().isEmpty()) {
+        for (const QString &key : oldSettings.allKeys())
+            newSettings.setValue(key, oldSettings.value(key));
+        newSettings.sync();
+    }
 
     // Load embedded Inter font family
     setupFonts();
+
+    // Must precede MainWindow — its controllers construct the first QSslSocket
+    selectTlsBackend();
 
     MainWindow window;
     window.show();

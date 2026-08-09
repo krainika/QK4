@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(QK4 VERSION 0.2.0 LANGUAGES CXX)
+project(QK4 VERSION 0.7.0 LANGUAGES CXX)
 
 # Full version string can include prerelease info (e.g., "0.1.0-alpha.123")
 # CI sets this via -DQK4_VERSION_FULL="x.y.z-prerelease"
@@ -351,7 +351,7 @@ if(APPLE)
     set(MACOSX_BUNDLE_BUNDLE_NAME ${PROJECT_NAME})
     set(MACOSX_BUNDLE_BUNDLE_VERSION ${QK4_VERSION_FULL})
     set(MACOSX_BUNDLE_SHORT_VERSION_STRING ${QK4_VERSION_FULL})
-    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.ai5qk.qk4")
+    set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.kf5o.qk4")
     set(MACOSX_BUNDLE_ICON_FILE QK4.icns)
 
     # Set the icon file as a resource
