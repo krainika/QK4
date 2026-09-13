@@ -5,8 +5,8 @@ A fork of [mikeg-dal/QK4](https://github.com/mikeg-dal/QK4) modified to build an
 ## Changes from Original
 
 - Uses MacPorts (`/opt/local`) instead of Homebrew for all dependencies
-- GTK/GLib/Cairo/Pango libraries excluded from the app bundle (macOS uses Core Text and Core Graphics natively)
 - ICU libraries bundled explicitly (`macdeployqt` misses them on Intel)
+- `librsvg` excluded from bundle (`macdeployqt` cannot rewrite its paths on Intel; not needed for Qt SVG rendering)
 
 ## Supported Platform
 

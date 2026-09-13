@@ -561,24 +561,13 @@ if(APPLE)
         # Fix libusb library path
         COMMAND install_name_tool -id "@executable_path/../Frameworks/libusb-1.0.dylib"
             "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libusb-1.0.dylib" || true
-        # Remove GTK/GLib/Cairo/Pango libraries pulled in by MacPorts Qt but not needed on macOS
-        # (macOS uses Core Text + Core Graphics natively; these cause install_name_tool failures)
+        # Remove librsvg — macdeployqt can't rewrite its paths (header too small) and it
+        # is not needed on macOS (Qt uses native SVG rendering). All other GLib/Pango/Cairo
+        # libs ARE referenced directly by QtGui/QtCore built by MacPorts and must stay.
         COMMAND ${CMAKE_COMMAND} -E rm -f
             "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/librsvg-2.2.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libpango-1.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libpangocairo-1.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libpangoft2-1.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libcairo.2.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libcairo-gobject.2.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libgdk_pixbuf-2.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libglib-2.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libgio-2.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libgmodule-2.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libgobject-2.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libgthread-2.0.0.dylib"
-            "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app/Contents/Frameworks/libffi.8.dylib"
-        # Re-sign the app bundle; use Developer ID if set, otherwise ad-hoc
-        COMMAND bash -c "codesign --force --deep --sign '${CODESIGN_IDENTITY}' '${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app' 2>/dev/null || codesign --force --deep --sign - '${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app'"
+        # Re-sign with ad-hoc signature (no Developer ID required)
+        COMMAND codesign --force --deep --sign - "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.app"
         COMMENT "Creating deployable app bundle with all dependencies..."
         DEPENDS ${PROJECT_NAME}
     )
