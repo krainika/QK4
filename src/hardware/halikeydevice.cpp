@@ -9,8 +9,9 @@
 Q_LOGGING_CATEGORY(hwHalikey, "hw.halikey")
 
 // WHY: HalikeyDevice no longer runs a time-window debounce. Each worker is authoritative for
-// clean edges — the V1.4 serial worker confirms across ≥2 reads (≥500 µs apart) before
-// emitting; the MIDI worker delivers already-debounced firmware events. The previous 3 ms
+// clean edges — the V1.4 serial worker confirms across ≥2 reads (≥500 µs apart on Linux/macOS,
+// ~1 ms apart on Windows, where the poll cadence sets the spacing) before emitting; the MIDI
+// worker delivers already-debounced firmware events. The previous 3 ms
 // processing-time gate silently dropped real MIDI releases on Windows when WinMM delivered
 // press+release in a single burst (see docs/halikey-midi-windows-debounce-bug.md), and also
 // harbored a latent bug where a rejected edge left `confirmed` stale. acceptEdge() (extracted
@@ -23,19 +24,20 @@ HalikeyDevice::~HalikeyDevice() {
     closePort();
 }
 
-void HalikeyDevice::onRawDit(bool pressed) {
-    if (acceptEdge(pressed, m_confirmedDitState))
-        emit ditStateChanged(pressed);
-}
+void HalikeyDevice::onRawLines(bool dit, bool dah, bool ptt) {
+    // Per-line same-direction dedupe is kept exactly as it was — it is the regression gate for the
+    // Windows MIDI stuck-paddle bug (see docs/halikey-midi-windows-debounce-bug.md). What changed
+    // is only that the confirmed lines leave here as ONE sample: a dedupe that drops a redundant
+    // edge on one line must not also drop the other lines' fresh values.
+    const bool ditNew = acceptEdge(dit, m_confirmedDitState);
+    const bool dahNew = acceptEdge(dah, m_confirmedDahState);
+    const bool pttNew = acceptEdge(ptt, m_confirmedPttState);
+    if (!ditNew && !dahNew && !pttNew)
+        return;
 
-void HalikeyDevice::onRawDah(bool pressed) {
-    if (acceptEdge(pressed, m_confirmedDahState))
-        emit dahStateChanged(pressed);
-}
-
-void HalikeyDevice::onRawPtt(bool pressed) {
-    if (acceptEdge(pressed, m_confirmedPttState))
-        emit pttStateChanged(pressed);
+    emit lineStateChanged(m_confirmedDitState.load(std::memory_order_acquire),
+                          m_confirmedDahState.load(std::memory_order_acquire),
+                          m_confirmedPttState.load(std::memory_order_acquire));
 }
 
 bool HalikeyDevice::openPort(const QString &portName) {
@@ -58,13 +60,11 @@ bool HalikeyDevice::openPort(const QString &portName) {
     m_workerThread = new QThread(this);
     m_worker->moveToThread(m_workerThread);
 
-    // DirectConnection: onRaw* runs on whatever worker thread delivered the event (RtMidi
-    // callback for MIDI, monitor thread for V1.4). Both update the same atomics + emit
-    // ditStateChanged from that thread. Downstream connections are independently safe
-    // (HardwareController's dit/dah handlers only touch atomics and queue to the keyer thread).
-    connect(m_worker, &HaliKeyWorkerBase::ditStateChanged, this, &HalikeyDevice::onRawDit, Qt::DirectConnection);
-    connect(m_worker, &HaliKeyWorkerBase::dahStateChanged, this, &HalikeyDevice::onRawDah, Qt::DirectConnection);
-    connect(m_worker, &HaliKeyWorkerBase::pttStateChanged, this, &HalikeyDevice::onRawPtt, Qt::DirectConnection);
+    // DirectConnection: onRawLines runs on whatever worker thread delivered the event (RtMidi
+    // callback for MIDI, monitor thread for V1.4). It updates the confirmed atomics and re-emits
+    // from that thread. Downstream connections are independently safe (CwController's handler only
+    // touches atomics and queues to the keyer thread).
+    connect(m_worker, &HaliKeyWorkerBase::lineStateChanged, this, &HalikeyDevice::onRawLines, Qt::DirectConnection);
     connect(m_worker, &HaliKeyWorkerBase::portOpened, this, [this]() {
         m_connected = true;
         emit connected();
