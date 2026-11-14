@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(QK4 VERSION 0.7.0 LANGUAGES CXX)
+project(QK4 VERSION 0.8.1 LANGUAGES CXX)
 
 # Full version string can include prerelease info (e.g., "0.1.0-alpha.123")
 # CI sets this via -DQK4_VERSION_FULL="x.y.z-prerelease"
@@ -15,6 +15,15 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# Directory-wide, so every target - app, tests and third_party sources - sees the same <windows.h>.
+# WHY: without NOMINMAX, <windows.h> defines min/max macros that break every bare std::min/std::max
+# in a translation unit that includes it. WIN32_LEAN_AND_MEAN drops winsock.h (which collides with
+# k4discovery's winsock2.h), mmsystem.h and the shell/OLE/crypto headers; the code that needs
+# mmsystem (RtMidi) or winsock includes it explicitly.
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 # Tests only: configure the unit tests and stop before the app, so only the Qt modules the tests
 # link - all of them in qtbase - need to exist. WHY: the weekly ThreadSanitizer job builds Qt itself
 # with -sanitize thread (a distro Qt hides its own locking from TSan and every cross-thread queued
@@ -29,9 +38,24 @@ else()
     find_package(Qt6 REQUIRED COMPONENTS Core Widgets Network Multimedia ShaderTools Gui SerialPort Svg Test)
 endif()
 
+# WHY a warning and not an error: every CI runner builds with the exact Qt in .github/qt-version, so a
+# local build on another version can show bugs CI never sees (or hide ones it does). Flatpak and distro
+# Qt legitimately differ in the patch, so this only says so; scripts/check-qt-version.sh --local checks.
+set(QK4_QT_VERSION_FILE "${CMAKE_SOURCE_DIR}/.github/qt-version")
+if(EXISTS "${QK4_QT_VERSION_FILE}")
+    file(STRINGS "${QK4_QT_VERSION_FILE}" QK4_PINNED_QT_VERSION LIMIT_COUNT 1)
+    string(STRIP "${QK4_PINNED_QT_VERSION}" QK4_PINNED_QT_VERSION)
+    if(NOT Qt6_VERSION VERSION_EQUAL QK4_PINNED_QT_VERSION)
+        message(WARNING
+            "Building with Qt ${Qt6_VERSION}, but CI builds and tests with Qt ${QK4_PINNED_QT_VERSION} "
+            "(.github/qt-version). Install that version and point CMAKE_PREFIX_PATH at it, e.g. "
+            "\$HOME/Qt/${QK4_PINNED_QT_VERSION}/macos.")
+    endif()
+endif()
+
 # GuiPrivate is needed for QRhi access but may not have CMake config on all platforms
 if(APPLE)
-    # macOS Homebrew Qt includes GuiPrivate CMake config
+    # Qt's macOS packages include the GuiPrivate CMake config
     find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
     set(QT_GUI_PRIVATE_FOUND TRUE)
 elseif(WIN32)
@@ -45,7 +69,7 @@ elseif(WIN32)
         set(QT_GUI_PRIVATE_FOUND FALSE)
     endif()
 else()
-    # Linux: Debian cross-compilation may not ship GuiPrivate CMake config
+    # Linux: distro Qt packages may not ship the GuiPrivate CMake config (the official Qt does)
     find_package(Qt6 COMPONENTS GuiPrivate QUIET)
     if(Qt6GuiPrivate_FOUND)
         set(QT_GUI_PRIVATE_FOUND TRUE)
@@ -127,6 +151,11 @@ set(SOURCES
     src/controllers/cwcontroller.cpp
     src/controllers/transmitcontroller.cpp
     src/network/tcpclient.cpp
+    src/network/pingtracker.cpp
+    src/network/kzegress.cpp
+    src/utils/rtscheduling.cpp
+    src/utils/rtsemaphore.cpp
+    src/utils/threadshutdown.cpp
     src/network/protocol.cpp
     src/network/networkmetrics.cpp
     src/network/kpa1500client.cpp
@@ -137,6 +166,7 @@ set(SOURCES
     src/network/cwmacro.cpp
     src/network/catpushbroadcaster.cpp
     src/network/k4discovery.cpp
+    src/network/tlsbackend.cpp
     src/network/websocketframe.cpp
     src/network/websocketserver.cpp
     src/network/tciprotocol.cpp
@@ -145,17 +175,28 @@ set(SOURCES
     src/network/tciserverstate.cpp
     src/network/tciaudiobridge.cpp
     src/dsp/audioupsampler.cpp
+    src/audio/audiodiagnostics.cpp
     src/audio/audioengine.cpp
     src/audio/opusdecoder.cpp
     src/audio/opusencoder.cpp
     src/audio/sidetonegenerator.cpp
+    src/audio/sidetonescheduler.cpp
+    src/audio/txaudiopipeline.cpp
     src/dsp/panadapter_rhi.cpp
     src/dsp/minipan_rhi.cpp
     src/dsp/bandplanstrip.cpp
+    src/dsp/spectrumgeometry.cpp
+    src/dsp/poweraverager.cpp
     src/dsp/spectrumscale.cpp
     src/dsp/waterfallgeometry.cpp
+    src/utils/panelscale.cpp
     src/settings/radiosettings.cpp
     src/settings/interfacescale.cpp
+    src/logging/logcategories.cpp
+    src/logging/logpaths.cpp
+    src/logging/logsink.cpp
+    src/logging/logrules.cpp
+    src/logging/logsession.cpp
     src/models/radiostate.cpp
     src/models/radiostate/antennastate.cpp
     src/models/radiostate/audioeffectsstate.cpp
@@ -174,6 +215,8 @@ set(SOURCES
     src/ui/dialogs/radiomanagerdialog.cpp
     src/ui/widgets/dualcontrolbutton.cpp
     src/ui/widgets/sidecontrolpanel.cpp
+    src/ui/widgets/sidepanelbutton.cpp
+    src/ui/widgets/memorykeyrow.cpp
     src/ui/widgets/bottommenubar.cpp
     src/ui/overlays/menuoverlay.cpp
     src/ui/overlays/mousevfoindicator.cpp
@@ -199,6 +242,8 @@ set(SOURCES
     src/ui/pages/kpodpage.cpp
     src/ui/pages/kpa1500page.cpp
     src/ui/pages/dxclusterpage.cpp
+    src/ui/pages/diagnosticspage.cpp
+    src/ui/pages/optionspagelayout.cpp
     src/ui/overlays/dxspotoverlay.cpp
     src/ui/widgets/rightsidepanel.cpp
     src/ui/widgets/featuremenubar.cpp
@@ -226,6 +271,7 @@ set(SOURCES
     src/ui/styling/k4styles.cpp
     src/ui/styling/k4glyphs.cpp
     src/ui/popups/k4popupbase.cpp
+    src/ui/popups/popupdismissal.cpp
     src/ui/widgets/kpa1500minipanel.cpp
     src/ui/overlays/sidecontroloverlay.cpp
     src/ui/overlays/monoverlay.cpp
@@ -239,12 +285,23 @@ set(SOURCES
     src/hardware/halikeyworkerbase.cpp
     src/hardware/halikeyv14worker.cpp
     src/hardware/halikeymidiworker.cpp
-    src/hardware/iambickeyer.cpp
+    src/hardware/halikeyportscan.cpp
+    src/hardware/mididevicewatcher.cpp
+    src/hardware/paddlekeyer.cpp
+    src/hardware/keyerruntime.cpp
+    src/hardware/seriallinepoller.cpp
     third_party/rtmidi/RtMidi.cpp
 )
 
 if(UNIX AND NOT APPLE)
     list(APPEND SOURCES src/hardware/kpodudevworker.cpp)
+endif()
+
+# NSProcessInfo activity while connected (utils/rtscheduling_mac.mm): Objective-C++, ARC.
+if(APPLE)
+    enable_language(OBJCXX)
+    list(APPEND SOURCES src/utils/rtscheduling_mac.mm)
+    set_source_files_properties(src/utils/rtscheduling_mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 set(HEADERS
@@ -281,6 +338,14 @@ set(HEADERS
     src/controllers/memorybuttonscontroller.h
     src/controllers/cwcontroller.h
     src/network/tcpclient.h
+    src/network/pingtracker.h
+    src/network/kzegress.h
+    src/utils/latencyhistogram.h
+    src/utils/rtscheduling.h
+    src/utils/rtsemaphore.h
+    src/utils/threadshutdown.h
+    src/utils/panelscale.h
+    src/utils/spscring.h
     src/network/protocol.h
     src/network/networkmetrics.h
     src/network/kpa1500client.h
@@ -289,14 +354,24 @@ set(HEADERS
     src/network/catframes.h
     src/network/catpushbroadcaster.h
     src/network/k4discovery.h
+    src/network/tlsbackend.h
+    src/audio/audiodiagnostics.h
     src/audio/audioengine.h
     src/audio/opusdecoder.h
     src/audio/opusencoder.h
     src/audio/sidetonegenerator.h
+    src/audio/sidetonescheduler.h
+    src/audio/txaudiopipeline.h
     src/dsp/panadapter_rhi.h
     src/dsp/minipan_rhi.h
     src/settings/radiosettings.h
     src/settings/interfacescale.h
+    src/logging/logcategories.h
+    src/logging/logpaths.h
+    src/logging/logqueue.h
+    src/logging/logsink.h
+    src/logging/logrules.h
+    src/logging/logsession.h
     src/models/radiostate.h
     src/models/radiostate/antennastate.h
     src/models/radiostate/datacontrolstate.h
@@ -305,6 +380,7 @@ set(HEADERS
     src/models/radiostate/modefilterstate.h
     src/models/radiostate/processingstate.h
     src/models/radiostate/qskcontrolstate.h
+    src/models/radiostate/reportedflag.h
     src/models/radiostate/textdecodestate.h
     src/models/radiostate/xvtrbandstate.h
     src/models/menumodel.h
@@ -312,6 +388,8 @@ set(HEADERS
     src/ui/dialogs/radiomanagerdialog.h
     src/ui/widgets/dualcontrolbutton.h
     src/ui/widgets/sidecontrolpanel.h
+    src/ui/widgets/sidepanelbutton.h
+    src/ui/widgets/memorykeyrow.h
     src/ui/widgets/bottommenubar.h
     src/ui/overlays/menuoverlay.h
     src/ui/overlays/mousevfoindicator.h
@@ -336,6 +414,8 @@ set(HEADERS
     src/ui/pages/kpodpage.h
     src/ui/pages/kpa1500page.h
     src/ui/pages/dxclusterpage.h
+    src/ui/pages/diagnosticspage.h
+    src/ui/pages/optionspagelayout.h
     src/ui/overlays/dxspotoverlay.h
     src/ui/widgets/rightsidepanel.h
     src/ui/widgets/featuremenubar.h
@@ -361,6 +441,7 @@ set(HEADERS
     src/ui/styling/k4constants.h
     src/utils/windowfit.h
     src/ui/popups/k4popupbase.h
+    src/ui/popups/popupdismissal.h
     src/ui/widgets/kpa1500minipanel.h
     src/ui/overlays/sidecontroloverlay.h
     src/ui/overlays/monoverlay.h
@@ -374,11 +455,16 @@ set(HEADERS
     src/hardware/halikeyworkerbase.h
     src/hardware/halikeyv14worker.h
     src/hardware/halikeymidiworker.h
-    src/hardware/iambickeyer.h
+    src/hardware/halikeyportscan.h
+    src/hardware/paddlekeyer.h
+    src/hardware/keyertiming.h
+    src/hardware/cwgate.h
+    src/hardware/keyerruntime.h
+    src/hardware/seriallinepoller.h
 )
 
 if(UNIX AND NOT APPLE)
-    list(APPEND HEADERS src/hardware/kpodudevworker.h)
+    list(APPEND HEADERS src/hardware/kpodudevworker.h src/hardware/kpodudevmatch.h)
 endif()
 
 # On macOS, create an app bundle
@@ -399,6 +485,37 @@ if(APPLE)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/resources/Info.plist.in"
+    )
+    # WHY explicitly: QMicrophonePermission needs Qt's static darwin permission plugin. Qt links it
+    # from a finalizer that only qt_add_executable()/qt_finalize_target() run, and this target is a
+    # plain add_executable(). Without it checkPermission() logs "Could not find permission plugin"
+    # and the microphone - and with it PTT - is refused.
+    qt_import_plugins(${PROJECT_NAME} INCLUDE Qt6::QDarwinMicrophonePermissionPlugin)
+    # WHY: the plugin's request half (the code that makes macOS show its prompt) is a separate
+    # object, linked only through -u _QDarwinMicrophonePermissionRequest, which Qt adds when its
+    # finalizer finds NSMicrophoneUsageDescription in the Info.plist. Same finalizer as above, so a
+    # plain add_executable() never gets it: checkPermission() works, but requestPermission() falls
+    # to Qt's stub, which logs "Could not request QMicrophonePermission ... usage description" and
+    # answers Denied without asking. An existing grant hid it; once macOS dropped the grant there
+    # was no way to get it back (2026-10-30). Check with: nm QK4 | grep "(Request) requestPermission"
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-u,_QDarwinMicrophonePermissionRequest")
+    # WHY: the linker signs only the executable, leaving the bundle's Info.plist unbound
+    # ("Info.plist=not bound" in codesign -dvvv). macOS privacy then cannot tie the app to its
+    # NSMicrophoneUsageDescription: it refuses the microphone without a prompt and never lists QK4
+    # under Privacy & Security > Microphone, so PTT sends nothing (2026-10-30). Signing the bundle
+    # binds it. Packaging re-signs after this (scripts/macos-bundle.sh ad-hoc, then _build-macos.yml
+    # with the Developer ID), so release builds are unaffected.
+    # WHY a certificate where one exists: macOS keeps Local Network and Microphone grants per signing
+    # identity. An ad-hoc identity is the binary's hash, so every rebuild is a new app that has lost
+    # both grants (connect fails "Host unreachable", no prompt). A certificate's identity (team +
+    # bundle id) survives rebuilds. Set QK4_CODESIGN_IDENTITY to e.g. "Apple Development"; the
+    # default "-" (ad-hoc) still binds the Info.plist for machines without one.
+    set(QK4_CODESIGN_IDENTITY "-" CACHE STRING
+        "codesign identity for local macOS builds (\"-\" = ad-hoc; e.g. \"Apple Development\")")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND codesign --force --sign "${QK4_CODESIGN_IDENTITY}" "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>"
+        COMMENT "Signing the app bundle (${QK4_CODESIGN_IDENTITY}) so macOS binds its Info.plist"
+        VERBATIM
     )
 elseif(WIN32)
     # Configure Windows version resource file
@@ -429,6 +546,8 @@ endif()
 # Pass version to source code as compile definition
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     QK4_VERSION="${QK4_VERSION_FULL}"
+    # Source file and line in release builds too; the log file prints them for warnings.
+    QT_MESSAGELOGCONTEXT
 )
 
 # Add Qt private headers for QRhi access
@@ -461,6 +580,8 @@ if(APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         "-framework IOKit"
         "-framework CoreFoundation"
+        "-framework CoreGraphics"
+        "-framework Foundation"
     )
 endif()
 
@@ -474,6 +595,8 @@ if(APPLE)
 elseif(WIN32)
     target_compile_definitions(${PROJECT_NAME} PRIVATE __WINDOWS_MM__)
     target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    # MMCSS (AvSetMmThreadCharacteristicsW) for the real-time CW threads, utils/rtscheduling.cpp
+    target_link_libraries(${PROJECT_NAME} PRIVATE avrt)
 else()
     target_compile_definitions(${PROJECT_NAME} PRIVATE __LINUX_ALSA__)
     target_link_libraries(${PROJECT_NAME} PRIVATE asound)
